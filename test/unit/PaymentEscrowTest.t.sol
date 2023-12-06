@@ -94,7 +94,7 @@ contract PaymentEscrowTest is StdCheats, Test {
         string memory orderId =
             paymentEscrowContract.placeBuyOrder{value: purchaseAmount}(defaultProperty.id, orderTokens, PRICE_PER_TOKEN);
 
-        // check that the sell order was placed
+        // check that the buy order was placed
         (string memory id, address user,, string memory propertyId, uint256 tokens, uint256 price) =
             paymentEscrowContract.orderMap(orderId);
         vm.stopPrank();
@@ -251,6 +251,42 @@ contract PaymentEscrowTest is StdCheats, Test {
         assertEq(propertyToken.balanceOf(bob), TOTAL_PROPERTY_TOKENS - orderTokens);
     }
 
+    // test execute single sell order
+    function testEscrowExecuteSellOrder() public registerProperty {
+        PropertyToken propertyToken = PropertyToken(propertyTokenisation.getPropertyToken(defaultProperty.id));
+        // place a sell order
+        uint256 orderTokens = 100000;
+        vm.startPrank(bob);
+        propertyToken.approve(address(paymentEscrowContract), orderTokens);
+        string memory orderId = paymentEscrowContract.placeSellOrder(defaultProperty.id, orderTokens, PRICE_PER_TOKEN);
+
+        // check that the sell order was placed
+        (string memory id, address user,, string memory propertyId, uint256 tokens, uint256 price) =
+            paymentEscrowContract.orderMap(orderId);
+        vm.stopPrank();
+        assertEq(id, orderId);
+        assertEq(user, bob);
+        assertEq(propertyId, defaultProperty.id);
+        assertEq(tokens, orderTokens);
+        assertEq(price, PRICE_PER_TOKEN);
+
+        // execute single sell order
+        uint256 purchaseAmount = PRICE_PER_TOKEN * orderTokens;
+        vm.deal(alice, 10 ether);
+        vm.startPrank(alice);
+        bool result = paymentEscrowContract.executeSellOrder{value: purchaseAmount}(orderId);
+        vm.stopPrank();
+
+        assertEq(result, true);
+
+        // check that the tokens were transferred and the ether was transferred
+        assertEq(propertyToken.balanceOf(alice), orderTokens);
+        assertEq(propertyToken.balanceOf(bob), TOTAL_PROPERTY_TOKENS - orderTokens);
+
+        assertEq(address(paymentEscrowContract).balance, 0);
+        assertEq(bob.balance, purchaseAmount);
+    }
+
     // test execute single buy order that does not exist
     function testEscrowExecuteBuyOrderNotExist() public registerProperty {
         vm.startPrank(bob);
@@ -308,5 +344,136 @@ contract PaymentEscrowTest is StdCheats, Test {
         );
         paymentEscrowContract.executeBuyOrder(orderId);
         vm.stopPrank();
+    }
+
+    // test execute single buy order without enough eth sent
+    function testEscrowExecuteSellOrderNotEnoughEth() public registerProperty {
+        PropertyToken propertyToken = PropertyToken(propertyTokenisation.getPropertyToken(defaultProperty.id));
+        // place a sell order
+        uint256 orderTokens = 100000;
+        vm.startPrank(bob);
+        propertyToken.approve(address(paymentEscrowContract), orderTokens);
+        string memory orderId = paymentEscrowContract.placeSellOrder(defaultProperty.id, orderTokens, PRICE_PER_TOKEN);
+
+        // check that the sell order was placed
+        (string memory id, address user,, string memory propertyId, uint256 tokens, uint256 price) =
+            paymentEscrowContract.orderMap(orderId);
+        vm.stopPrank();
+        assertEq(id, orderId);
+        assertEq(user, bob);
+        assertEq(propertyId, defaultProperty.id);
+        assertEq(tokens, orderTokens);
+        assertEq(price, PRICE_PER_TOKEN);
+
+        // execute single sell order
+        uint256 purchaseAmount = PRICE_PER_TOKEN * orderTokens;
+        vm.deal(alice, 10 ether);
+        vm.startPrank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PaymentEscrow.Escrow__NotEnoughEthSent.selector, (defaultProperty.id), (alice), (purchaseAmount - 1)
+            )
+        );
+        paymentEscrowContract.executeSellOrder{value: purchaseAmount - 1}(orderId);
+        vm.stopPrank();
+    }
+
+    // test cancel sell order
+    function testEscrowCancelSellOrder() public registerProperty {
+        // place a sell order
+        uint256 orderTokens = 100000;
+        PropertyToken propertyToken = PropertyToken(propertyTokenisation.getPropertyToken(defaultProperty.id));
+        vm.startPrank(bob);
+        propertyToken.approve(address(paymentEscrowContract), orderTokens);
+        string memory orderId = paymentEscrowContract.placeSellOrder(defaultProperty.id, orderTokens, PRICE_PER_TOKEN);
+
+        // check that the sell order was placed
+        (string memory id, address user,, string memory propertyId, uint256 tokens, uint256 price) =
+            paymentEscrowContract.orderMap(orderId);
+        vm.stopPrank();
+        assertEq(id, orderId);
+        assertEq(user, bob);
+        assertEq(propertyId, defaultProperty.id);
+        assertEq(tokens, orderTokens);
+        assertEq(price, PRICE_PER_TOKEN);
+
+        // cancel sell order
+        vm.startPrank(bob);
+        paymentEscrowContract.cancelOrder(orderId);
+        vm.stopPrank();
+
+        // check that the sell order was cancelled
+        (,,,, uint256 newTokens,) = paymentEscrowContract.orderMap(orderId);
+        assertEq(newTokens, 0);
+
+        // check that order is not in the sellOrders array
+        uint256 sellOrdersLength = paymentEscrowContract.getNumberOfSellOrders();
+        assertEq(sellOrdersLength, 0);
+    }
+
+    // test cancel buy order
+    function testEscrowCancelBuyOrder() public registerProperty {
+        uint256 orderTokens = 100000;
+        uint256 purchaseAmount = PRICE_PER_TOKEN * orderTokens;
+        vm.deal(alice, 10 ether);
+        vm.startPrank(alice);
+        string memory orderId =
+            paymentEscrowContract.placeBuyOrder{value: purchaseAmount}(defaultProperty.id, orderTokens, PRICE_PER_TOKEN);
+
+        // check that the buy order was placed
+        (string memory id, address user,, string memory propertyId, uint256 tokens, uint256 price) =
+            paymentEscrowContract.orderMap(orderId);
+        vm.stopPrank();
+        assertEq(id, orderId);
+        assertEq(user, alice);
+        assertEq(propertyId, defaultProperty.id);
+        assertEq(tokens, orderTokens);
+        assertEq(price, PRICE_PER_TOKEN);
+
+        assertEq(address(paymentEscrowContract).balance, purchaseAmount);
+
+        // cancel buy order
+        vm.startPrank(alice);
+        paymentEscrowContract.cancelOrder(orderId);
+        vm.stopPrank();
+
+        // check that the buy order was cancelled
+        (,,,, uint256 newTokens,) = paymentEscrowContract.orderMap(orderId);
+        assertEq(newTokens, 0);
+
+        // check balances of escrow and buyer
+        assertEq(address(paymentEscrowContract).balance, 0);
+        assertEq(alice.balance, 10 ether);
+
+        // check that order is not in the buyOrders array
+        uint256 buyOrdersLength = paymentEscrowContract.getNumberOfBuyOrders();
+        assertEq(buyOrdersLength, 0);
+    }
+
+    // test cancel order with the wrong user
+    function testEscrowCancelSellOrderInvalidUser() public registerProperty {
+        // place a sell order
+        uint256 orderTokens = 100000;
+        PropertyToken propertyToken = PropertyToken(propertyTokenisation.getPropertyToken(defaultProperty.id));
+        vm.startPrank(bob);
+        propertyToken.approve(address(paymentEscrowContract), orderTokens);
+        string memory orderId = paymentEscrowContract.placeSellOrder(defaultProperty.id, orderTokens, PRICE_PER_TOKEN);
+
+        // check that the sell order was placed
+        (string memory id, address user,, string memory propertyId, uint256 tokens, uint256 price) =
+            paymentEscrowContract.orderMap(orderId);
+        vm.stopPrank();
+        assertEq(id, orderId);
+        assertEq(user, bob);
+        assertEq(propertyId, defaultProperty.id);
+        assertEq(tokens, orderTokens);
+        assertEq(price, PRICE_PER_TOKEN);
+
+        // cancel sell order
+        vm.startPrank(alice);
+        vm.expectRevert(abi.encodeWithSelector(PaymentEscrow.Escrow__InvalidUser.selector, (orderId), (alice)));
+        paymentEscrowContract.cancelOrder(orderId);
+        vm.stopPrank();
+
     }
 }

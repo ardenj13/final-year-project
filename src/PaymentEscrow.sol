@@ -44,6 +44,8 @@ contract PaymentEscrow {
     error Escrow__NotEnoughAllowance(string propertyId, address seller, uint256 allowance, uint256 amount);
     error Escrow__OrderDoesNotExist(string orderId);
     error Escrow__OrderNotBuyOrder(string orderId);
+    error Escrow__OrderNotSellOrder(string orderId);
+    error Escrow__InvalidUser(string orderId, address user);
 
     PropertyTokenisation public propertyTokenisationContract;
 
@@ -247,11 +249,135 @@ contract PaymentEscrow {
         for (uint256 i = 0; i < buyOrders.length; i++) {
             if (keccak256(abi.encodePacked(buyOrders[i].id)) == keccak256(abi.encodePacked(_orderId))) {
                 buyOrders[i].tokens = 0;
+                buyOrders[i] = buyOrders[buyOrders.length - 1];
+                buyOrders.pop();
                 break;
             }
         }
 
         return true;
+    }
+
+    // this function takes an order id that is a sell order and attempts to buy tokens at the price of the sell order for all tokens in the sell order
+    function executeSellOrder(string memory _orderId) external payable returns (bool) {
+        // check that the order exists
+        if (keccak256(abi.encodePacked(orderMap[_orderId].id)) != keccak256(abi.encodePacked(_orderId))) {
+            revert Escrow__OrderDoesNotExist(_orderId);
+        }
+
+        // check that the order is a sell order
+        if (orderMap[_orderId].orderType != OrderType.SELL) {
+            revert Escrow__OrderNotSellOrder(_orderId);
+        }
+
+        // check that the order is not already executed
+        if (orderMap[_orderId].tokens == 0) {
+            return false;
+        }
+
+        Order storage sellOrder = orderMap[_orderId];
+
+        // check that the buyer has sent enough ether
+        if (msg.value < sellOrder.tokens * sellOrder.price) {
+            revert Escrow__NotEnoughEthSent(sellOrder.propertyId, msg.sender, msg.value);
+        }
+
+        // Check that the seller has enough tokens to sell
+        PropertyToken propertyToken = PropertyToken(propertyTokenisationContract.getPropertyToken(sellOrder.propertyId));
+
+        if (propertyToken.balanceOf(sellOrder.user) < sellOrder.tokens) {
+            revert Escrow__NotEnoughTokensToSell(
+                sellOrder.propertyId, sellOrder.user, propertyToken.balanceOf(sellOrder.user), sellOrder.tokens
+            );
+        }
+
+        // Check the seller has given the escrow enough allowance to transfer tokens
+        if (propertyToken.allowance(sellOrder.user, address(this)) < sellOrder.tokens) {
+            revert Escrow__NotEnoughAllowance(
+                sellOrder.propertyId, sellOrder.user, propertyToken.allowance(sellOrder.user, address(this)), sellOrder.tokens
+            );
+        }
+
+        // Execute the trade, transfer tokens from the seller to the buyer and ether from the buyer to the seller
+        bool transferSuccessful = propertyToken.transferFrom(sellOrder.user, msg.sender, sellOrder.tokens);
+        if (!transferSuccessful) {
+            revert Escrow__TransferTokensFromEscrowFailed(sellOrder.propertyId, sellOrder.tokens, sellOrder.user);
+        }
+
+        // Transfer ether from the buyer to the seller
+        payable(sellOrder.user).transfer(sellOrder.tokens * sellOrder.price);
+
+        // Update the order in the order map and the sell orders array
+        orderMap[_orderId].tokens = 0;
+
+        for (uint256 i = 0; i < sellOrders.length; i++) {
+            if (keccak256(abi.encodePacked(sellOrders[i].id)) == keccak256(abi.encodePacked(_orderId))) {
+                sellOrders[i].tokens = 0;
+                sellOrders[i] = sellOrders[sellOrders.length - 1];
+                sellOrders.pop();
+                break;
+            }
+        }
+
+        return true;
+        
+    }
+
+    // function to cancel an order
+    function cancelOrder(string memory _orderId) external returns (bool) {
+        // check that the order exists
+        if (keccak256(abi.encodePacked(orderMap[_orderId].id)) != keccak256(abi.encodePacked(_orderId))) {
+            revert Escrow__OrderDoesNotExist(_orderId);
+        }
+
+        Order storage order = orderMap[_orderId];
+
+        // check that msg.sender is the user who placed the order
+        if (msg.sender != order.user) {
+            revert Escrow__InvalidUser(_orderId, msg.sender);
+        }
+
+        // check that the order is a buy order
+        if (order.orderType == OrderType.BUY && order.tokens != 0) {
+            // return the ether to the buyer
+            payable(order.user).transfer(order.tokens * order.price);
+        }
+
+        // Update the order in the order map and the buy orders array
+        orderMap[_orderId].tokens = 0;
+
+        if (order.orderType == OrderType.BUY) {
+            // remove the order from the buy orders array
+            for (uint256 i = 0; i < buyOrders.length; i++) {
+                if (keccak256(abi.encodePacked(buyOrders[i].id)) == keccak256(abi.encodePacked(_orderId))) {
+                    buyOrders[i].tokens = 0;
+                    buyOrders[i] = buyOrders[buyOrders.length - 1];
+                    buyOrders.pop();
+                    break;
+                }
+            }
+        } else {
+            for (uint256 i = 0; i < sellOrders.length; i++) {
+                if (keccak256(abi.encodePacked(sellOrders[i].id)) == keccak256(abi.encodePacked(_orderId))) {
+                    sellOrders[i].tokens = 0;
+                    sellOrders[i] = sellOrders[sellOrders.length - 1];
+                    sellOrders.pop();
+                    break;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // function to get the number of buy orders
+    function getNumberOfBuyOrders() external view returns (uint256) {
+        return buyOrders.length;
+    }
+
+    // function to get the number of sell orders
+    function getNumberOfSellOrders() external view returns (uint256) {
+        return sellOrders.length;
     }
 
     // Function to remove orders with tokens == 0
