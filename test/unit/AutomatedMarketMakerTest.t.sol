@@ -33,6 +33,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
 
     uint256 public constant INITIAL_LIQUIDITY_TOKENS = 500000;
     uint256 public constant INITIAL_LIQUIDITY_ETH = 50 ether;
+    uint256 public constant ADDITIONAL_LIQUIDITY_TOKENS = 100000;
 
     // modifier to register property
 
@@ -225,7 +226,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         assertEq(address(createdPt), address(pt));
     }
 
-    function testAMMCreateNewPoolAddLiquidiity() public registerProperty createPool addLiquidity {
+    function testAMMCreateNewPoolAddLiquidity() public registerProperty createPool addLiquidity {
         vm.prank(bob);
         PropertyToken pt = new PropertyToken();
 
@@ -249,7 +250,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         );
     }
 
-    function testAMMCreateNewPoolRemoveLiquidiity() public registerProperty createPool addLiquidity {
+    function testAMMCreateNewPoolRemoveLiquidity() public registerProperty createPool addLiquidity {
         vm.prank(bob);
         PropertyToken pt = new PropertyToken();
 
@@ -276,5 +277,112 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
 
         assertEq(pt.balanceOf(bob), TOTAL_PROPERTY_TOKENS);
         assertEq(bob.balance, 150 ether);
+    }
+
+    // Test add additonal liquidity to an existing pool
+    function testAMMAddLiquidityTwice() public registerProperty createPool addLiquidity {
+        assertEq(address(automatedMarketMakerContract).balance, INITIAL_LIQUIDITY_ETH);
+        assertEq(propertyTokenContract.balanceOf(address(automatedMarketMakerContract)), INITIAL_LIQUIDITY_TOKENS);
+
+        (, uint256 reservePropertyToken, uint256 reserveEth) =
+            automatedMarketMakerContract.pools(address(propertyTokenContract));
+        assertEq(reservePropertyToken, INITIAL_LIQUIDITY_TOKENS);
+        assertEq(reserveEth, INITIAL_LIQUIDITY_ETH);
+
+        assertEq(
+            automatedMarketMakerContract.balanceOf(address(propertyTokenContract), bob),
+            automatedMarketMakerContract.totalSupply(address(propertyTokenContract))
+        );
+
+        vm.startPrank(bob);
+        propertyTokenContract.approve(address(automatedMarketMakerContract), ADDITIONAL_LIQUIDITY_TOKENS);
+        (, uint256 newReservePropertyToken, uint256 newReserveEth) =
+            automatedMarketMakerContract.pools(address(propertyTokenContract));
+
+        uint256 additional_liquidity_eth = (newReserveEth * ADDITIONAL_LIQUIDITY_TOKENS) / newReservePropertyToken;
+        automatedMarketMakerContract.addLiquidity{value: additional_liquidity_eth}(
+            address(propertyTokenContract), ADDITIONAL_LIQUIDITY_TOKENS
+        );
+        vm.stopPrank();
+
+        assertEq(address(automatedMarketMakerContract).balance, INITIAL_LIQUIDITY_ETH + additional_liquidity_eth);
+        assertEq(
+            propertyTokenContract.balanceOf(address(automatedMarketMakerContract)),
+            INITIAL_LIQUIDITY_TOKENS + ADDITIONAL_LIQUIDITY_TOKENS
+        );
+
+        (, uint256 latestReservePropertyToken, uint256 latestReserveEth) =
+            automatedMarketMakerContract.pools(address(propertyTokenContract));
+
+        assertEq(latestReservePropertyToken, INITIAL_LIQUIDITY_TOKENS + ADDITIONAL_LIQUIDITY_TOKENS);
+        assertEq(latestReserveEth, INITIAL_LIQUIDITY_ETH + additional_liquidity_eth);
+
+        assertEq(
+            automatedMarketMakerContract.balanceOf(address(propertyTokenContract), bob),
+            automatedMarketMakerContract.totalSupply(address(propertyTokenContract))
+        );
+    }
+
+    // Test add additonal liquidity to an existing pool after a swap has been made
+    function testAMMAddLiquidityTwiceAfterSwap() public registerProperty createPool addLiquidity {
+        assertEq(address(automatedMarketMakerContract).balance, INITIAL_LIQUIDITY_ETH);
+        assertEq(propertyTokenContract.balanceOf(address(automatedMarketMakerContract)), INITIAL_LIQUIDITY_TOKENS);
+
+        (, uint256 reservePropertyToken, uint256 reserveEth) =
+            automatedMarketMakerContract.pools(address(propertyTokenContract));
+        assertEq(reservePropertyToken, INITIAL_LIQUIDITY_TOKENS);
+        assertEq(reserveEth, INITIAL_LIQUIDITY_ETH);
+
+        assertEq(
+            automatedMarketMakerContract.balanceOf(address(propertyTokenContract), bob),
+            automatedMarketMakerContract.totalSupply(address(propertyTokenContract))
+        );
+
+        // Swap eth for tokens
+
+        uint256 amountIn = 10 ether;
+        vm.deal(alice, 200 ether);
+        vm.startPrank(alice);
+        uint256 amountOut =
+            automatedMarketMakerContract.swapEthForTokens{value: amountIn}(address(propertyTokenContract));
+        vm.stopPrank();
+
+        assertEq(address(automatedMarketMakerContract).balance, amountIn + INITIAL_LIQUIDITY_ETH);
+        assertEq(
+            propertyTokenContract.balanceOf(address(automatedMarketMakerContract)), INITIAL_LIQUIDITY_TOKENS - amountOut
+        );
+
+        // Additional liquidity added
+        vm.startPrank(bob);
+        propertyTokenContract.approve(address(automatedMarketMakerContract), ADDITIONAL_LIQUIDITY_TOKENS);
+        (, uint256 newReservePropertyToken, uint256 newReserveEth) =
+            automatedMarketMakerContract.pools(address(propertyTokenContract));
+
+        uint256 additional_liquidity_eth = (newReserveEth * ADDITIONAL_LIQUIDITY_TOKENS) / newReservePropertyToken;
+        automatedMarketMakerContract.addLiquidity{value: additional_liquidity_eth}(
+            address(propertyTokenContract), ADDITIONAL_LIQUIDITY_TOKENS
+        );
+        vm.stopPrank();
+
+        assertEq(address(automatedMarketMakerContract).balance, INITIAL_LIQUIDITY_ETH + additional_liquidity_eth + amountIn);
+        assertEq(
+            propertyTokenContract.balanceOf(address(automatedMarketMakerContract)),
+            INITIAL_LIQUIDITY_TOKENS + ADDITIONAL_LIQUIDITY_TOKENS - amountOut
+        );
+
+        (, uint256 latestReservePropertyToken, uint256 latestReserveEth) =
+            automatedMarketMakerContract.pools(address(propertyTokenContract));
+
+        assertEq(latestReservePropertyToken, INITIAL_LIQUIDITY_TOKENS + ADDITIONAL_LIQUIDITY_TOKENS - amountOut);
+        assertEq(latestReserveEth, INITIAL_LIQUIDITY_ETH + additional_liquidity_eth + amountIn);
+
+        assertEq(
+            automatedMarketMakerContract.balanceOf(address(propertyTokenContract), bob),
+            automatedMarketMakerContract.totalSupply(address(propertyTokenContract))
+        );
+    }
+
+    function _roundUpToCustom(uint256 value, uint256 custom) private pure returns (uint256) {
+        return (value + custom - 1) / custom * custom;
     }
 }

@@ -126,7 +126,7 @@ contract AutomatedMarketMaker {
         }
 
         if (pool.reserveEth > 0 || pool.reservePropertyToken > 0) {
-            if (pool.reserveEth * _amountTokens != pool.reservePropertyToken * msg.value) {
+            if (_roundUpToCustom(pool.reserveEth * _amountTokens, 1e10) != _roundUpToCustom(pool.reservePropertyToken * msg.value, 1e10)) {
                 revert AutomatedMarketMaker__InvalidLiquidity(_amountTokens, msg.value);
             }
         }
@@ -269,5 +269,9 @@ contract AutomatedMarketMaker {
 
     function _min(uint256 x, uint256 y) private pure returns (uint256) {
         return x > y ? y : x;
+    }
+
+    function _roundUpToCustom(uint256 value, uint256 custom) private pure returns (uint256) {
+        return (value + custom - 1) / custom * custom;
     }
 }
