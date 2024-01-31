@@ -126,7 +126,7 @@ contract AutomatedMarketMaker {
         }
 
         if (pool.reserveEth > 0 || pool.reservePropertyToken > 0) {
-            if (_roundUpToCustom(pool.reserveEth * _amountTokens, 1e10) != _roundUpToCustom(pool.reservePropertyToken * msg.value, 1e10)) {
+            if (_roundUpToCustom(pool.reserveEth * _amountTokens, 1e17) != _roundUpToCustom(pool.reservePropertyToken * msg.value, 1e17)) {
                 revert AutomatedMarketMaker__InvalidLiquidity(_amountTokens, msg.value);
             }
         }

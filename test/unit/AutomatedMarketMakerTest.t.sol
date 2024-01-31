@@ -30,6 +30,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
 
     uint256 public constant PRICE_PER_TOKEN = 1e13;
     uint256 public constant TOTAL_PROPERTY_TOKENS = 1000000;
+    uint256 public constant STARTING_BALANCE = 2000 ether;
 
     uint256 public constant INITIAL_LIQUIDITY_TOKENS = 500000;
     uint256 public constant INITIAL_LIQUIDITY_ETH = 50 ether;
@@ -68,7 +69,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
     }
 
     modifier addLiquidity() {
-        vm.deal(bob, 200 ether);
+        vm.deal(bob, STARTING_BALANCE);
         vm.startPrank(bob);
         propertyTokenContract.approve(address(automatedMarketMakerContract), INITIAL_LIQUIDITY_TOKENS);
         automatedMarketMakerContract.addLiquidity{value: INITIAL_LIQUIDITY_ETH}(
@@ -128,13 +129,13 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         assertEq(propertyTokenContract.balanceOf(address(automatedMarketMakerContract)), 0);
 
         assertEq(propertyTokenContract.balanceOf(bob), TOTAL_PROPERTY_TOKENS);
-        assertEq(bob.balance, 200 ether);
+        assertEq(bob.balance, STARTING_BALANCE);
     }
 
     // // test swap eth for tokens
     function testAMMSwapEthForTokens() public registerProperty createPool addLiquidity {
         uint256 amountIn = 10 ether;
-        vm.deal(alice, 200 ether);
+        vm.deal(alice, STARTING_BALANCE);
         vm.startPrank(alice);
         uint256 amountOut =
             automatedMarketMakerContract.swapEthForTokens{value: amountIn}(address(propertyTokenContract));
@@ -152,7 +153,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         );
 
         assertEq(propertyTokenContract.balanceOf(alice), amountOut);
-        assertEq(alice.balance, 190 ether);
+        assertEq(alice.balance, STARTING_BALANCE - amountIn);
     }
 
     // // test swap tokens for eth
@@ -184,7 +185,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
 
     function testAMMGetEstimatedTokensForEth() public registerProperty createPool addLiquidity {
         uint256 amountIn = 10 ether;
-        vm.deal(alice, 200 ether);
+        vm.deal(alice, STARTING_BALANCE);
 
         uint256 expectedTokens =
             automatedMarketMakerContract.getEstimatedTokensForEth(address(propertyTokenContract), amountIn);
@@ -276,7 +277,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         assertEq(pt.balanceOf(address(automatedMarketMakerContract)), 0);
 
         assertEq(pt.balanceOf(bob), TOTAL_PROPERTY_TOKENS);
-        assertEq(bob.balance, 150 ether);
+        assertEq(bob.balance, STARTING_BALANCE - INITIAL_LIQUIDITY_ETH);
     }
 
     // Test add additonal liquidity to an existing pool
@@ -341,7 +342,7 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         // Swap eth for tokens
 
         uint256 amountIn = 10 ether;
-        vm.deal(alice, 200 ether);
+        vm.deal(alice, STARTING_BALANCE);
         vm.startPrank(alice);
         uint256 amountOut =
             automatedMarketMakerContract.swapEthForTokens{value: amountIn}(address(propertyTokenContract));
