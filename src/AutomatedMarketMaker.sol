@@ -47,6 +47,12 @@ contract AutomatedMarketMaker {
     mapping(address => mapping(address => uint256)) public balanceOf;
     mapping(address => uint256) public totalSupply;
 
+    event PoolCreated(address indexed propertyTokenAddress, uint256 reservePropertyToken, uint256 reserveEth);
+    event LiquidityAdded(address indexed propertyTokenAddress, uint256 tokens, uint256 eth, uint256 shares);
+    event LiquidityRemoved(address indexed propertyTokenAddress, uint256 tokens, uint256 eth, uint256 shares);
+    event TokensSwappedForEth(address indexed propertyTokenAddress, uint256 tokens, uint256 eth);
+    event EthSwappedForTokens(address indexed propertyTokenAddress, uint256 eth, uint256 tokens);
+
     constructor() {}
 
     function createPool(address _propertyTokenAddress) external {
@@ -55,6 +61,7 @@ contract AutomatedMarketMaker {
         }
         PropertyToken pt = PropertyToken(_propertyTokenAddress);
         pools[_propertyTokenAddress] = Pool(pt, 0, 0);
+        emit PoolCreated(_propertyTokenAddress, 0, 0);
     }
 
     function swapTokensForEth(address _propertyTokenAddress, uint256 _amount)
@@ -87,6 +94,8 @@ contract AutomatedMarketMaker {
 
         // update the reserves
         _updateReserves(_propertyTokenAddress, pool.propertyToken.balanceOf(address(this)), poolEthBalance);
+
+        emit TokensSwappedForEth(_propertyTokenAddress, _amount, amountOut);
     }
 
     function swapEthForTokens(address _propertyTokenAddress) external payable returns (uint256 amountOut) {
@@ -113,6 +122,8 @@ contract AutomatedMarketMaker {
 
         // update the reserves
         _updateReserves(_propertyTokenAddress, pool.propertyToken.balanceOf(address(this)), poolEthBalance);
+
+        emit EthSwappedForTokens(_propertyTokenAddress, msg.value, amountOut);
     }
 
     function addLiquidity(address _propertyTokenAddress, uint256 _amountTokens)
@@ -157,6 +168,8 @@ contract AutomatedMarketMaker {
 
         // update the reserves
         _updateReserves(_propertyTokenAddress, pool.propertyToken.balanceOf(address(this)), poolEthBalance);
+
+        emit LiquidityAdded(_propertyTokenAddress, _amountTokens, msg.value, shares);
     }
 
     function removeLiquidity(address _propertyTokenAddress, uint256 _shares)
@@ -199,6 +212,8 @@ contract AutomatedMarketMaker {
 
         // update the reserves
         _updateReserves(_propertyTokenAddress, pool.propertyToken.balanceOf(address(this)), poolEthBalance);
+
+        emit LiquidityRemoved(_propertyTokenAddress, amountTokens, amountEth, _shares);
     }
 
     // function that takes in a token amount and returns the equivalent amount of eth

@@ -365,7 +365,9 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
         );
         vm.stopPrank();
 
-        assertEq(address(automatedMarketMakerContract).balance, INITIAL_LIQUIDITY_ETH + additional_liquidity_eth + amountIn);
+        assertEq(
+            address(automatedMarketMakerContract).balance, INITIAL_LIQUIDITY_ETH + additional_liquidity_eth + amountIn
+        );
         assertEq(
             propertyTokenContract.balanceOf(address(automatedMarketMakerContract)),
             INITIAL_LIQUIDITY_TOKENS + ADDITIONAL_LIQUIDITY_TOKENS - amountOut
@@ -381,6 +383,132 @@ contract AutomatedMarketMakerTest is StdCheats, Test {
             automatedMarketMakerContract.balanceOf(address(propertyTokenContract), bob),
             automatedMarketMakerContract.totalSupply(address(propertyTokenContract))
         );
+    }
+
+    // Test create pool for a pool which has already been created
+    function testAMMCreatePoolWhenPoolExists() public registerProperty createPool {
+        vm.startPrank(bob);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AutomatedMarketMaker.AutomatedMarketMaker__PoolAlreadyExists.selector, (address(propertyTokenContract))
+            )
+        );
+        automatedMarketMakerContract.createPool(address(propertyTokenContract));
+        vm.stopPrank();
+    }
+
+    // Test swap eth when eth is <= 0
+    function testAMMSwapEthForTokensWhenEthIsZero() public registerProperty createPool addLiquidity {
+        vm.startPrank(alice);
+        vm.expectRevert(abi.encodeWithSelector(AutomatedMarketMaker.AutomatedMarketMaker__InvalidAmount.selector, (0)));
+        automatedMarketMakerContract.swapEthForTokens{value: 0}(address(propertyTokenContract));
+        vm.stopPrank();
+    }
+
+    // Test swap tokens when tokens is <= 0
+    function testAMMSwapTokensForEthWhenTokensIsZero() public registerProperty createPool addLiquidity {
+        vm.startPrank(alice);
+        vm.expectRevert(abi.encodeWithSelector(AutomatedMarketMaker.AutomatedMarketMaker__InvalidAmount.selector, (0)));
+        automatedMarketMakerContract.swapTokensForEth(address(propertyTokenContract), 0);
+        vm.stopPrank();
+    }
+
+    // Test swap tokens without having sufficient tokens to swap
+    function testAMMSwapTokensForEthWhenInsufficientTokens() public registerProperty createPool addLiquidity {
+        uint256 amountIn = 100000;
+        vm.startPrank(bob);
+        propertyTokenContract.transfer(alice, amountIn);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        propertyTokenContract.approve(address(automatedMarketMakerContract), amountIn);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PropertyToken.PropertyToken__NotEnoughTokensToTransfer.selector,
+                (propertyTokenContract.balanceOf(alice)),
+                (amountIn + 1)
+            )
+        );
+        automatedMarketMakerContract.swapTokensForEth(address(propertyTokenContract), amountIn + 1);
+        vm.stopPrank();
+    }
+
+    // Test swap tokens for eth without enough allowance
+    function testAMMSwapTokensForEthWithoutEnoughAllowance() public registerProperty createPool addLiquidity {
+        uint256 amountIn = 100000;
+        vm.startPrank(bob);
+        propertyTokenContract.transfer(alice, amountIn);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PropertyToken.PropertyToken__NotEnoughAllowance.selector,
+                (propertyTokenContract.allowance(alice, address(automatedMarketMakerContract))),
+                (amountIn)
+            )
+        );
+        automatedMarketMakerContract.swapTokensForEth(address(propertyTokenContract), amountIn);
+        vm.stopPrank();
+    }
+
+    // Test add liquidity having sufficient tokens
+    function testAMMAddLiquidityWhenInsufficientTokens() public registerProperty createPool {
+        vm.deal(alice, STARTING_BALANCE);
+        vm.startPrank(alice);
+        propertyTokenContract.approve(address(automatedMarketMakerContract), 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PropertyToken.PropertyToken__NotEnoughTokensToTransfer.selector,
+                (propertyTokenContract.balanceOf(alice)),
+                (INITIAL_LIQUIDITY_TOKENS)
+            )
+        );
+        automatedMarketMakerContract.addLiquidity{value: INITIAL_LIQUIDITY_ETH}(
+            address(propertyTokenContract), INITIAL_LIQUIDITY_TOKENS
+        );
+        vm.stopPrank();
+    }
+
+    // Test add liquidity without enough allowance
+    function testAMMAddLiquidityWithoutEnoughAllowance() public registerProperty createPool {
+        vm.deal(bob, STARTING_BALANCE);
+        vm.startPrank(bob);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                PropertyToken.PropertyToken__NotEnoughAllowance.selector,
+                (propertyTokenContract.allowance(bob, address(automatedMarketMakerContract))),
+                (INITIAL_LIQUIDITY_TOKENS)
+            )
+        );
+        automatedMarketMakerContract.addLiquidity{value: INITIAL_LIQUIDITY_ETH}(
+            address(propertyTokenContract), INITIAL_LIQUIDITY_TOKENS
+        );
+        vm.stopPrank();
+    }
+
+    // Test remove liquidity without enough shares
+    function testAMMRemoveLiquidityWhenInsufficientShares() public registerProperty createPool addLiquidity {
+        vm.startPrank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(AutomatedMarketMaker.AutomatedMarketMaker__NotEnoughShares.selector, (1))
+        );
+        automatedMarketMakerContract.removeLiquidity(address(propertyTokenContract), 1);
+        vm.stopPrank();
+    }
+
+    // Test add liquidity with wrong amount of eth and tokens
+    function testAMMAddLiquidityWithWrongAmount() public registerProperty createPool addLiquidity {
+        vm.deal(bob, STARTING_BALANCE);
+        vm.startPrank(bob);
+        propertyTokenContract.approve(address(automatedMarketMakerContract), INITIAL_LIQUIDITY_TOKENS);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                AutomatedMarketMaker.AutomatedMarketMaker__InvalidLiquidity.selector, (1), (STARTING_BALANCE)
+            )
+        );
+        automatedMarketMakerContract.addLiquidity{value: STARTING_BALANCE}(address(propertyTokenContract), 1);
+        vm.stopPrank();
     }
 
     function _roundUpToCustom(uint256 value, uint256 custom) private pure returns (uint256) {
